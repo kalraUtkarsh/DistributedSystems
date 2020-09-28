@@ -1,0 +1,101 @@
+from multiprocessing import Process, Pipe
+
+
+class VectorClock:
+    def __init__(self, proc_amt: int, self_index: int):
+        self.vector = [0] * proc_amt
+        self.self_index = self_index
+
+    def increment(self):
+        self.vector[self.self_index] += 1
+
+    def sync(self, other):
+        for i in range(len(self.vector)):
+            self.vector[i] = max(self.vector[i], other.vector[i])
+
+    def copy(self):
+        new_clock = VectorClock(len(self.vector), self.self_index)
+        new_clock.vector = self.vector[:]
+        return new_clock
+
+    def __str__(self):
+        return str(self.vector)
+
+
+
+def event(pid, clock, msg):
+    clock.increment()
+    print(f'{msg} happened in {pid} ({clock})')
+
+
+def send_message(pipe, pid, clock):
+    clock.increment()
+    pipe.send(clock.copy())
+    print(f'Message sent from {pid} ({clock})')
+
+
+def recv_message(pipe, pid, clock):
+    other_clock = pipe.recv()
+    clock.sync(other_clock)
+    clock.increment()
+    print(f'Message received at {pid} ({clock})')
+
+
+def processA(pipe12):
+    pid = 0
+    clock = VectorClock(3, pid)
+
+    send_message(pipe12, pid, clock)
+    send_message(pipe12, pid, clock)
+    event(pid, clock, 'A2')
+    recv_message(pipe12, pid, clock)
+    event(pid, clock, 'A4')
+    event(pid, clock, 'A5')
+    recv_message(pipe12, pid, clock)
+    print(f'Process a {clock}')
+
+
+def processB(pipe21, pipe23):
+    pid = 1
+    clock = VectorClock(3, pid)
+
+    recv_message(pipe21, pid, clock)
+    recv_message(pipe21, pid, clock)
+    send_message(pipe21, pid, clock)
+    recv_message(pipe23, pid, clock)
+    event(pid, clock, 'B4')
+    send_message(pipe21, pid, clock)
+    send_message(pipe23, pid, clock)
+    send_message(pipe23, pid, clock)
+    print(f'Process b {clock}')
+
+
+def processC(pipe32):
+    pid = 2
+    clock = VectorClock(3, pid)
+
+    send_message(pipe32, pid, clock)
+    recv_message(pipe32, pid, clock)
+    event(pid, clock, 'C2')
+    recv_message(pipe32, pid, clock)
+    print(f'Process c {clock}')
+
+
+if __name__ == '__main__':
+    oneandtwo, twoandone = Pipe()
+    twoandthree, threeandtwo = Pipe()
+
+    p1 = Process(target=processA,
+                 args=(oneandtwo,))
+    p2 = Process(target=processB,
+                 args=(twoandone, twoandthree))
+    p3 = Process(target=processC,
+                 args=(threeandtwo,))
+
+    p1.start()
+    p2.start()
+    p3.start()
+
+    p1.join()
+    p2.join()
+    p3.join()
